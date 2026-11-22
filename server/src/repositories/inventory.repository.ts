@@ -161,6 +161,27 @@ export const adjustInventory = async (
   return row ? toInventoryItem(row) : null;
 };
 
+/**
+ * Sale deduction: ONE conditional UPDATE, never read-then-write. The row lock it takes makes
+ * concurrent sales of the same item queue up, and each re-checks `quantity >= $3` against the
+ * latest committed stock. Returns the new quantity, or null when stock is insufficient (or there
+ * is no stock row), in which case nothing changed.
+ */
+export const deductInventory = async (
+  db: Queryable,
+  outletId: number,
+  menuItemId: number,
+  quantity: number,
+): Promise<number | null> => {
+  const { rows } = await db.query<{ quantity: number }>(
+    `UPDATE inventory SET quantity = quantity - $3, updated_at = now()
+     WHERE outlet_id = $1 AND menu_item_id = $2 AND quantity >= $3
+     RETURNING quantity`,
+    [outletId, menuItemId, quantity],
+  );
+  return rows[0]?.quantity ?? null;
+};
+
 /** Diagnostics only (after a refused adjustment); never used to decide a write. */
 export const findInventoryQuantity = async (
   db: Queryable,

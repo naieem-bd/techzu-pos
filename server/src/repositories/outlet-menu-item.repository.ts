@@ -187,6 +187,58 @@ export const deleteAssignment = async (
   ]);
 };
 
+interface SaleCandidateRow {
+  menu_item_id: string;
+  sku: string;
+  name: string;
+  unit_price: string;
+  is_available: boolean;
+  is_active: boolean;
+}
+
+/** An assigned item requested in a sale, with the price it would sell for right now. */
+export interface SaleCandidate {
+  menuItemId: number;
+  sku: string;
+  name: string;
+  /** COALESCE(price_override, base_price), as the exact NUMERIC string pg returned. */
+  unitPrice: string;
+  isAvailable: boolean;
+  isActive: boolean;
+}
+
+/**
+ * ONE query for every line of a sale. Unassigned ids are simply absent from the result, so the
+ * caller can tell "not assigned" from "assigned but not sellable". Served by
+ * outlet_menu_items_outlet_item_key (outlet_id, menu_item_id); menu_items joins on its PK.
+ */
+export const findItemsForSale = async (
+  db: Queryable,
+  outletId: number,
+  menuItemIds: readonly number[],
+): Promise<SaleCandidate[]> => {
+  const { rows } = await db.query<SaleCandidateRow>(
+    `SELECT mi.id AS menu_item_id, mi.sku, mi.name,
+            COALESCE(omi.price_override, mi.base_price) AS unit_price,
+            omi.is_available, mi.is_active
+     FROM outlet_menu_items omi
+     JOIN menu_items mi ON mi.id = omi.menu_item_id
+     WHERE omi.outlet_id = $1 AND omi.menu_item_id = ANY($2::bigint[])
+     ORDER BY mi.id
+     -- Concurrent PATCH/unassign waits for this sale; order omi -> inventory matches unassign.
+     FOR SHARE OF omi`,
+    [outletId, menuItemIds],
+  );
+  return rows.map((row) => ({
+    menuItemId: Number(row.menu_item_id),
+    sku: row.sku,
+    name: row.name,
+    unitPrice: row.unit_price,
+    isAvailable: row.is_available,
+    isActive: row.is_active,
+  }));
+};
+
 interface SellableMenuItemRow {
   menu_item_id: string;
   sku: string;
