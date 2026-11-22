@@ -26,6 +26,11 @@ const PG_ERROR_MAP: Readonly<Record<string, MappedError>> = {
     body: { code: 'CHECK_VIOLATION', message: 'Operation violates a data constraint' },
   },
   '22P02': { status: 422, body: { code: 'INVALID_INPUT', message: 'Invalid input value' } },
+  // numeric_value_out_of_range, e.g. an INTEGER column overflowing.
+  '22003': {
+    status: 422,
+    body: { code: 'VALUE_OUT_OF_RANGE', message: 'A value is outside the allowed range' },
+  },
 };
 
 /** body-parser errors carry `type` and `status`. */
