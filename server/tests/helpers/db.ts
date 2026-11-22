@@ -86,3 +86,34 @@ export const countRows = async (
   );
   return Number(rows[0]?.total ?? 0);
 };
+
+/** Sets stock directly (bypassing the API) to arrange a known starting quantity. */
+export const setStock = async (
+  outletId: number,
+  menuItemId: number,
+  quantity: number,
+): Promise<void> => {
+  await pool.query(
+    'UPDATE inventory SET quantity = $3 WHERE outlet_id = $1 AND menu_item_id = $2',
+    [outletId, menuItemId, quantity],
+  );
+};
+
+export const setAvailability = async (
+  outletId: number,
+  menuItemId: number,
+  isAvailable: boolean,
+): Promise<void> => {
+  await pool.query(
+    'UPDATE outlet_menu_items SET is_available = $3 WHERE outlet_id = $1 AND menu_item_id = $2',
+    [outletId, menuItemId, isAvailable],
+  );
+};
+
+export const getStock = async (outletId: number, menuItemId: number): Promise<number | null> => {
+  const { rows } = await pool.query<{ quantity: number }>(
+    'SELECT quantity FROM inventory WHERE outlet_id = $1 AND menu_item_id = $2',
+    [outletId, menuItemId],
+  );
+  return rows[0]?.quantity ?? null;
+};
