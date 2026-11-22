@@ -19,4 +19,7 @@ export const applyTestEnv = (): void => {
   process.env.LOG_LEVEL = 'silent';
   process.env.CORS_ORIGIN ??= 'http://localhost:5173';
   process.env.DB_SSL = 'false';
+  // Enough connections for the concurrency suite to run 20+ sale transactions truly in parallel
+  // (the default 10 would queue most of them in node-pg). Well under Postgres' max_connections=100.
+  process.env.DB_POOL_MAX ??= '25';
 };

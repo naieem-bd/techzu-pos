@@ -33,6 +33,9 @@ const envSchema = z.object({
     .pipe(z.array(z.url({ message: 'each origin must be a valid URL' })).min(1)),
   LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
   DB_SSL: booleanString.default(false),
+  // Max pg connections per process. Keep it below the server's max_connections
+  // (managed Postgres plans often allow only 25-100 in total).
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
 });
 
 export type Config = Readonly<z.infer<typeof envSchema>>;
