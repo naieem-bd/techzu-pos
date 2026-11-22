@@ -186,3 +186,71 @@ export const deleteAssignment = async (
     menuItemId,
   ]);
 };
+
+interface SellableMenuItemRow {
+  menu_item_id: string;
+  sku: string;
+  name: string;
+  category: string;
+  effective_price: string;
+  quantity: number;
+}
+
+/** What the POS can sell right now: assigned, available at the outlet, active at HQ. */
+export interface SellableMenuItem {
+  menuItemId: number;
+  sku: string;
+  name: string;
+  category: string;
+  effectivePrice: string;
+  quantity: number;
+}
+
+export interface SellableMenuFilter {
+  search?: string | undefined;
+  category?: string | undefined;
+  /** true = quantity > 0, false = quantity = 0, undefined = no filter. */
+  inStock?: boolean | undefined;
+}
+
+/**
+ * Starts from this outlet's assignments (outlet_menu_items_outlet_item_key serves
+ * outlet_id = $1); inner joins drop anything unassigned. $2 search, $3 category, $4 inStock
+ * (each NULL disables its filter), $5 row cap.
+ */
+export const listSellableMenu = async (
+  db: Queryable,
+  outletId: number,
+  filter: SellableMenuFilter,
+  maxRows: number,
+): Promise<SellableMenuItem[]> => {
+  const { rows } = await db.query<SellableMenuItemRow>(
+    `SELECT mi.id AS menu_item_id, mi.sku, mi.name, mi.category,
+            COALESCE(omi.price_override, mi.base_price) AS effective_price,
+            inv.quantity
+     FROM outlet_menu_items omi
+     JOIN menu_items mi ON mi.id = omi.menu_item_id
+     JOIN inventory inv ON inv.outlet_id = omi.outlet_id AND inv.menu_item_id = omi.menu_item_id
+     WHERE omi.outlet_id = $1 AND omi.is_available AND mi.is_active
+       AND ($2::text IS NULL OR mi.name ILIKE $2 OR mi.sku ILIKE $2)
+       AND ($3::text IS NULL OR mi.category = $3)
+       AND ($4::boolean IS NULL OR (inv.quantity > 0) = $4)
+     ORDER BY mi.category, mi.name, mi.id
+     LIMIT $5`,
+    [
+      outletId,
+      containsPattern(filter.search),
+      filter.category ?? null,
+      filter.inStock ?? null,
+      maxRows,
+    ],
+  );
+  return rows.map((row) => ({
+    menuItemId: Number(row.menu_item_id),
+    sku: row.sku,
+    name: row.name,
+    category: row.category,
+    effectivePrice: row.effective_price,
+    quantity: row.quantity,
+  }));
+};
