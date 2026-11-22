@@ -75,7 +75,7 @@ export const recordSale = async (outletId: number, menuItemId: number): Promise<
 };
 
 export const countRows = async (
-  table: 'receipt_counters' | 'inventory' | 'outlet_menu_items',
+  table: 'receipt_counters' | 'inventory' | 'outlet_menu_items' | 'sales' | 'sale_items',
   where: string,
   params: unknown[],
 ): Promise<number> => {
@@ -116,4 +116,37 @@ export const getStock = async (outletId: number, menuItemId: number): Promise<nu
     [outletId, menuItemId],
   );
   return rows[0]?.quantity ?? null;
+};
+
+export const setActive = async (menuItemId: number, isActive: boolean): Promise<void> => {
+  await pool.query('UPDATE menu_items SET is_active = $2 WHERE id = $1', [menuItemId, isActive]);
+};
+
+export const setBasePrice = async (menuItemId: number, basePrice: string): Promise<void> => {
+  await pool.query('UPDATE menu_items SET base_price = $2 WHERE id = $1', [menuItemId, basePrice]);
+};
+
+export const setPriceOverride = async (
+  outletId: number,
+  menuItemId: number,
+  priceOverride: string | null,
+): Promise<void> => {
+  await pool.query(
+    'UPDATE outlet_menu_items SET price_override = $3 WHERE outlet_id = $1 AND menu_item_id = $2',
+    [outletId, menuItemId, priceOverride],
+  );
+};
+
+export const getReceiptCounter = async (outletId: number): Promise<number | null> => {
+  const { rows } = await pool.query<{ last_number: string }>(
+    'SELECT last_number FROM receipt_counters WHERE outlet_id = $1',
+    [outletId],
+  );
+  const lastNumber = rows[0]?.last_number;
+  return lastNumber === undefined ? null : Number(lastNumber);
+};
+
+/** Back-dates a sale so date-range filters can be tested deterministically. */
+export const setSaleCreatedAt = async (saleId: number, createdAt: string): Promise<void> => {
+  await pool.query('UPDATE sales SET created_at = $2 WHERE id = $1', [saleId, createdAt]);
 };
