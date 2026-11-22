@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { idField, idParam, paginationQuery } from './common';
+import {
+  DATE_RANGE_ERROR,
+  dateRangeQuery,
+  idField,
+  idParam,
+  isValidDateRange,
+  paginationQuery,
+} from './common';
 
 export const MAX_SALE_LINES = 50;
 export const MAX_LINE_QUANTITY = 999;
@@ -23,25 +30,16 @@ export const createSaleSchemas = {
     .strict(),
 };
 
-/** Full ISO 8601 datetime with `Z` or an offset, so the instant is never timezone-ambiguous. */
-const isoDateTime = z.iso
-  .datetime({ offset: true, message: 'must be an ISO 8601 datetime with timezone' })
-  .transform((value) => new Date(value));
-
 export const listSalesSchemas = {
   params: outletParams,
   query: z
     .object({
       ...paginationQuery,
-      from: isoDateTime.optional(),
-      to: isoDateTime.optional(),
+      ...dateRangeQuery,
       receiptNumber: idParam.optional(),
     })
     .strict()
-    .refine(({ from, to }) => from === undefined || to === undefined || from < to, {
-      message: 'must be after "from"',
-      path: ['to'],
-    }),
+    .refine(isValidDateRange, DATE_RANGE_ERROR),
 };
 
 export const getSaleSchemas = {

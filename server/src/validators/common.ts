@@ -41,3 +41,25 @@ export const hasAtLeastOneField = (body: Record<string, unknown>): boolean =>
   Object.values(body).some((value) => value !== undefined);
 
 export const AT_LEAST_ONE_FIELD = { message: 'At least one field must be provided' };
+
+/** Full ISO 8601 datetime with `Z` or an offset, so the instant is never timezone-ambiguous. */
+export const isoDateTime = z.iso
+  .datetime({ offset: true, message: 'must be an ISO 8601 datetime with timezone' })
+  .transform((value) => new Date(value));
+
+/** Half-open range: `from` inclusive, `to` exclusive. Spread into a query object. */
+export const dateRangeQuery = {
+  from: isoDateTime.optional(),
+  to: isoDateTime.optional(),
+};
+
+/** For `.refine(isValidDateRange, DATE_RANGE_ERROR)`: an empty or inverted range is rejected. */
+export const isValidDateRange = ({
+  from,
+  to,
+}: {
+  from?: Date | undefined;
+  to?: Date | undefined;
+}): boolean => from === undefined || to === undefined || from < to;
+
+export const DATE_RANGE_ERROR = { message: 'must be after "from"', path: ['to'] };
