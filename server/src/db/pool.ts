@@ -13,7 +13,7 @@ export type Queryable = Pool | PoolClient;
 export const pool: Pool = new pg.Pool({
   connectionString: config.DATABASE_URL,
   ssl: config.DB_SSL ? { rejectUnauthorized: true } : false,
-  max: 10,
+  max: config.DB_POOL_MAX,
   idleTimeoutMillis: 30_000,
   // Fail fast instead of hanging a request forever when the DB is unreachable.
   connectionTimeoutMillis: 5_000,

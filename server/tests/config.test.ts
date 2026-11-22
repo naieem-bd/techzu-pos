@@ -23,6 +23,15 @@ describe('loadConfig()', () => {
     expect(loadConfig({ ...validEnv, DB_SSL: 'true' }).DB_SSL).toBe(true);
   });
 
+  it('defaults DB_POOL_MAX to 10 and coerces a numeric string', () => {
+    expect(loadConfig(validEnv).DB_POOL_MAX).toBe(10);
+    expect(loadConfig({ ...validEnv, DB_POOL_MAX: '25' }).DB_POOL_MAX).toBe(25);
+  });
+
+  it.each(['0', '101', 'abc', '2.5'])('rejects DB_POOL_MAX=%s', (value) => {
+    expect(() => loadConfig({ ...validEnv, DB_POOL_MAX: value })).toThrow(/DB_POOL_MAX/);
+  });
+
   it('fails fast listing every invalid variable without echoing values', () => {
     const run = (): unknown =>
       loadConfig({ ...validEnv, PORT: 'abc', DATABASE_URL: 'mysql://secret@x', DB_SSL: 'yes' });
