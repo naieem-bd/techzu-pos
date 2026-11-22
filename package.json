@@ -17,7 +17,10 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test -w server",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "db:migrate": "npm run db:migrate -w server",
+    "db:seed": "npm run db:seed -w server",
+    "db:reset": "npm run db:reset -w server"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
