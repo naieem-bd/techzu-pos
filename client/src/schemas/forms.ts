@@ -50,3 +50,48 @@ export const dateRangeSchema = z
   });
 
 export type DateRangeForm = z.infer<typeof dateRangeSchema>;
+
+/** Mirrors MAX_STOCK_ADJUSTMENT in server/src/validators/outlet-inventory.validators.ts. */
+export const MAX_STOCK_ADJUSTMENT = 10_000;
+
+/** "+20" adds, "-3" removes, "20" adds. Parsed to the signed integer the PATCH body wants. */
+export const stockAdjustmentSchema = z.object({
+  adjustment: z
+    .string()
+    .trim()
+    .regex(/^[+-]?\d{1,5}$/, 'Enter a whole number like +20 or -3')
+    .transform(Number)
+    .refine((value) => value !== 0, 'Must not be zero')
+    .refine(
+      (value) => Math.abs(value) <= MAX_STOCK_ADJUSTMENT,
+      `At most ${MAX_STOCK_ADJUSTMENT.toLocaleString('en-US')} per adjustment`,
+    ),
+});
+
+export type StockAdjustmentInput = z.input<typeof stockAdjustmentSchema>;
+export type StockAdjustmentOutput = z.output<typeof stockAdjustmentSchema>;
+
+// Optional outlet-code prefix (letters, digits, "-", "_") then the receipt number's digits.
+const RECEIPT_RE = /^(?:[A-Za-z0-9_-]+-)?(\d{1,15})$/;
+
+/** "GUL-000124" or "124" -> 124; blank or anything else -> undefined. */
+export const parseReceiptNumber = (value: string): number | undefined => {
+  const digits = RECEIPT_RE.exec(value.trim())?.[1];
+  if (!digits) return undefined;
+  const receiptNumber = Number(digits);
+  return receiptNumber > 0 ? receiptNumber : undefined;
+};
+
+export const salesFilterSchema = dateRangeSchema.and(
+  z.object({
+    receipt: z
+      .string()
+      .trim()
+      .refine(
+        (value) => value === '' || parseReceiptNumber(value) !== undefined,
+        'Enter a receipt like GUL-000124 or 124',
+      ),
+  }),
+);
+
+export type SalesFilterForm = z.infer<typeof salesFilterSchema>;
