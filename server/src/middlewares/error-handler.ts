@@ -74,6 +74,15 @@ const mapError = (err: unknown): MappedError => {
 };
 
 /**
+ * Error level = something actually broke: any unexpected error, or an AppError that wraps one
+ * (`cause`, e.g. the health check's DB failure). A deliberate 5xx AppError with no cause (e.g.
+ * DOCS_UNAVAILABLE, already explained once in the startup log) is an expected state, so it gets
+ * a warn line per request like any 4xx, not an error + stack trace every time.
+ */
+const isServerFault = (err: unknown, status: number): boolean =>
+  status >= 500 && (!(err instanceof AppError) || err.cause !== undefined);
+
+/**
  * Central error handler: the only place that turns errors into HTTP responses.
  * Raw SQL/driver messages and stack traces are logged (with the request id), never sent.
  */
@@ -84,7 +93,7 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) 
   }
 
   const { status, body } = mapError(err);
-  if (status >= 500) {
+  if (isServerFault(err, status)) {
     req.log.error({ err }, 'Request failed with server error');
   } else {
     req.log.warn({ code: body.code, status }, body.message);

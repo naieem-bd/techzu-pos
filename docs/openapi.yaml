@@ -1,0 +1,1532 @@
+openapi: 3.1.0
+info:
+  title: Techzu POS API
+  version: 0.1.0
+  summary: Central HQ + multi-outlet F&B point of sale.
+  description: |
+    HQ manages outlets, the master menu and which items each outlet sells (with optional
+    per-outlet price overrides). Outlets keep their own stock and record multi-item sales.
+
+    **Conventions**
+
+    - Success bodies are `{ "data": ..., "meta"?: ... }`. List endpoints return
+      `meta: { total, limit, offset }`.
+    - Error bodies are `{ "error": { "code", "message", "details"? } }`. `code` is stable and
+      meant for programs; `message` is for people.
+    - Money is always a **string** with exactly two decimals (`"4.50"`), never a JSON number.
+      Requests accept 0-2 decimals (`"4"`, `"4.5"`, `"4.50"`).
+    - Timestamps are ISO 8601 UTC strings. Date-range filters take `from` (inclusive) and `to`
+      (exclusive), each an ISO 8601 datetime **with** a timezone (`Z` or `+06:00`).
+    - Unknown query or body fields are rejected with `422 VALIDATION_ERROR`.
+    - `/api` is rate limited per IP (300 requests / 15 min). Responses carry the draft-7
+      `RateLimit` and `RateLimit-Policy` headers; over the limit you get `429 RATE_LIMITED`.
+    - No authentication (out of scope for this assessment).
+
+    **Errors that any endpoint can return** (not repeated per operation): `429 RATE_LIMITED`,
+    `500 INTERNAL_ERROR`. Endpoints with a JSON body can also return `400 INVALID_JSON` and
+    `413 PAYLOAD_TOO_LARGE` (body limit 100 kB). If a database constraint catches something the
+    service rules did not, you get `409 CONFLICT`, `409 CHECK_VIOLATION`,
+    `422 FOREIGN_KEY_VIOLATION`, `422 INVALID_INPUT` or `422 VALUE_OUT_OF_RANGE`.
+    Unknown routes return `404 ROUTE_NOT_FOUND`.
+  license:
+    name: UNLICENSED
+    identifier: UNLICENSED
+
+tags:
+  - name: Health
+    description: Liveness/readiness and this API reference.
+  - name: Outlets
+    description: HQ - outlets (branches). Creating an outlet also creates its receipt counter.
+  - name: Menu
+    description: HQ - the master menu. Prices set here are the default for every outlet.
+  - name: Assignments
+    description: |
+      HQ - which master items an outlet sells, at what price. Assigning creates a stock row
+      with quantity 0; the outlet adds stock through the inventory endpoint.
+  - name: Outlet menu & inventory
+    description: Outlet (POS) - the sellable menu and stock management.
+  - name: Sales
+    description: |
+      Outlet (POS) - multi-item sales. Each sale runs in one database transaction: every line's
+      stock is deducted and the outlet's next receipt number is taken, or nothing changes.
+      Receipt numbers are sequential per outlet with no gaps, even under concurrent requests.
+  - name: Reports
+    description: HQ - revenue and best sellers.
+
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Health check
+      description: Checks the process and a database round trip. Use it as a readiness probe.
+      responses:
+        '200':
+          description: The API and the database are up.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                additionalProperties: false
+                properties:
+                  data: { $ref: '#/components/schemas/Health' }
+              example:
+                data: { status: ok, db: up, uptime: 3721 }
+        '503':
+          description: The database is unreachable. Load balancers should stop routing here.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                error:
+                  code: SERVICE_UNAVAILABLE
+                  message: Database is unavailable
+                  details: { db: down }
+
+  /api/openapi.json:
+    get:
+      tags: [Health]
+      operationId: getOpenApiSpec
+      summary: This OpenAPI document as JSON
+      description: |
+        The raw OpenAPI 3.1 document (not wrapped in `{ data }`), for tools such as code
+        generators and API clients.
+      responses:
+        '200':
+          description: The OpenAPI document.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [openapi, info, paths]
+        '503':
+          $ref: '#/components/responses/DocsUnavailable'
+
+  /api/docs:
+    get:
+      tags: [Health]
+      operationId: getApiDocs
+      summary: Interactive API reference (this page)
+      description: |
+        HTML page rendered by Scalar from `/api/openapi.json`. Served with its own
+        Content-Security-Policy (per-request script nonce); every other route keeps the strict
+        default policy.
+      responses:
+        '200':
+          description: HTML page.
+          content:
+            text/html:
+              schema: { type: string }
+        '503':
+          $ref: '#/components/responses/DocsUnavailable'
+
+  /api/outlets:
+    get:
+      tags: [Outlets]
+      operationId: listOutlets
+      summary: List outlets
+      description: Ordered by name. `search` matches code or name (case-insensitive, contains).
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - name: search
+          in: query
+          description: Case-insensitive substring of the outlet code or name, e.g. `mall`.
+          schema: { $ref: '#/components/schemas/SearchText' }
+      responses:
+        '200':
+          description: A page of outlets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                additionalProperties: false
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Outlet' }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+              example:
+                data:
+                  - id: 3
+                    code: AP03
+                    name: Airport
+                    address: null
+                    createdAt: '2026-11-20T08:00:00.000Z'
+                    updatedAt: '2026-11-20T08:00:00.000Z'
+                  - id: 2
+                    code: ML02
+                    name: City Mall
+                    address: Level 2, City Mall, 88 Ring Road
+                    createdAt: '2026-11-20T08:00:00.000Z'
+                    updatedAt: '2026-11-20T08:00:00.000Z'
+                  - id: 1
+                    code: DT01
+                    name: Downtown
+                    address: 12 Market Street, Downtown
+                    createdAt: '2026-11-20T08:00:00.000Z'
+                    updatedAt: '2026-11-20T08:00:00.000Z'
+                meta: { total: 3, limit: 20, offset: 0 }
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    post:
+      tags: [Outlets]
+      operationId: createOutlet
+      summary: Create an outlet
+      description: Creates the outlet and its receipt counter (starting at 0) atomically.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOutletBody' }
+            examples:
+              withAddress:
+                summary: Outlet with an address
+                value:
+                  code: UN04
+                  name: University
+                  address: Campus Food Court, Block C
+              withoutAddress:
+                summary: Address is optional
+                value:
+                  code: KS05
+                  name: Kiosk Station
+      responses:
+        '201':
+          description: The created outlet.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                additionalProperties: false
+                properties:
+                  data: { $ref: '#/components/schemas/Outlet' }
+              example:
+                data:
+                  id: 4
+                  code: UN04
+                  name: University
+                  address: Campus Food Court, Block C
+                  createdAt: '2026-11-23T09:00:00.000Z'
+                  updatedAt: '2026-11-23T09:00:00.000Z'
+        '409':
+          description: The outlet code is already in use.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                error:
+                  code: OUTLET_CODE_TAKEN
+                  message: Outlet code "DT01" is already in use
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/menu-items:
+    get:
+      tags: [Menu]
+      operationId: listMenuItems
+      summary: List master menu items
+      description: Ordered by category, then name.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Category'
+        - name: isActive
+          in: query
+          description: Only active (`true`) or only inactive (`false`) items. Omit for all.
+          schema: { $ref: '#/components/schemas/BooleanQuery' }
+      responses:
+        '200':
+          description: A page of menu items.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                additionalProperties: false
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/MenuItem' }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+              example:
+                data:
+                  - id: 1
+                    sku: COF-ESP
+                    name: Espresso
+                    category: Coffee
+                    basePrice: '3.00'
+                    isActive: true
+                    createdAt: '2026-11-20T08:00:00.000Z'
+                    updatedAt: '2026-11-20T08:00:00.000Z'
+                  - id: 2
+                    sku: COF-LAT
+                    name: Caffe Latte
+                    category: Coffee
+                    basePrice: '4.50'
+                    isActive: true
+                    createdAt: '2026-11-20T08:00:00.000Z'
+                    updatedAt: '2026-11-20T08:00:00.000Z'
+                meta: { total: 3, limit: 2, offset: 0 }
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    post:
+      tags: [Menu]
+      operationId: createMenuItem
+      summary: Create a master menu item
+      description: New items are active. The SKU is the stable business key and cannot be changed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateMenuItemBody' }
+            example:
+              sku: COF-MOC
+              name: Mocha
+              category: Coffee
+              basePrice: '4.75'
+      responses:
+        '201':
+          description: The created menu item.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                additionalProperties: false
+                properties:
+                  data: { $ref: '#/components/schemas/MenuItem' }
+              example:
+                data:
+                  id: 13
+                  sku: COF-MOC
+                  name: Mocha
+                  category: Coffee
+                  basePrice: '4.75'
+                  isActive: true
+                  createdAt: '2026-11-23T09:05:00.000Z'
+                  updatedAt: '2026-11-23T09:05:00.000Z'
+        '409':
+          description: The SKU is already in use.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                error:
+                  code: MENU_ITEM_SKU_TAKEN
+                  message: SKU "COF-ESP" is already in use
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/menu-items/{id}:
+    patch:
+      tags: [Menu]
+      operationId: updateMenuItem
+      summary: Update a master menu item
+      description: |
+        Partial update; send at least one field. `sku` is not editable. Setting
+        `isActive: false` hides the item from every outlet's sellable menu without unassigning it.
+        Past sales keep the price they were sold at.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Menu item id.
+          schema: { $ref: '#/components/schemas/IdParam' }
+          example: 2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateMenuItemBody' }
+            examples:
+              priceChange:
+                summary: Change the base price
+                value: { basePrice: '4.75' }
+              deactivate:
+                summary: Take an item off every menu
+                value: { isActive: false }
+      responses:
+        '200':
+          description: The updated menu item.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                additionalProperties: false
+                properties:
+                  data: { $ref: '#/components/schemas/MenuItem' }
+              example:
+                data:
+                  id: 2
+                  sku: COF-LAT
+                  name: Caffe Latte
+                  category: Coffee
+                  basePrice: '4.75'
+                  isActive: true
+                  createdAt: '2026-11-20T08:00:00.000Z'
+                  updatedAt: '2026-11-23T09:10:00.000Z'
+        '404':
+          description: No menu item with this id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                error:
+                  code: MENU_ITEM_NOT_FOUND
+                  message: Menu item 999 not found
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/outlets/{outletId}/menu-items:
+    get:
+      tags: [Assignments]
+      operationId: listOutletMenuItems
+      summary: Master menu as seen by one outlet
+      description: |
+        Every master item with this outlet's assignment, if any. For unassigned items
+        `priceOverride`, `effectivePrice` and `isAvailable` are `null`.
+        `effectivePrice` = `priceOverride` if set, else `basePrice`. Ordered by category, then name.
+      parameters:
+        - $ref: '#/components/parameters/OutletId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Category'
+        - name: assigned
+          in: query
+          description: Only assigned (`true`) or only unassigned (`false`) items. Omit for all.
+          schema: { $ref: '#/components/schemas/BooleanQuery' }
+      responses:
+        '200':
+          description: A page of master items with this outlet's assignment.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                additionalProperties: false
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/OutletMenuItem' }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+              example:
+                data:
+                  - menuItemId: 2
+                    sku: COF-LAT
+                    name: Caffe Latte
+                    category: Coffee
+                    basePrice: '4.50'
+                    isActive: true
+                    assigned: true
+                    priceOverride: '4.25'
+                    effectivePrice: '4.25'
+                    isAvailable: true
+                  - menuItemId: 5
+                    sku: TEA-CHA
+                    name: Masala Chai
+                    category: Tea
+                    basePrice: '3.75'
+                    isActive: true
+                    assigned: false
+                    priceOverride: null
+                    effectivePrice: null
+                    isAvailable: null
+                meta: { total: 12, limit: 2, offset: 0 }
+        '404':
+          $ref: '#/components/responses/OutletNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    post:
+      tags: [Assignments]
+      operationId: assignMenuItem
+      summary: Assign a master item to an outlet
+      description: |
+        Creates the assignment (available, optional price override) and a stock row with
+        quantity 0, atomically. Only active items can be assigned.
+      parameters:
+        - $ref: '#/components/parameters/OutletId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssignMenuItemBody' }
+            examples:
+              basePrice:
+                summary: Sell at the HQ base price
+                value: { menuItemId: 5 }
+              override:
+                summary: Sell at an outlet-specific price
+                value: { menuItemId: 5, priceOverride: '3.50' }
+      responses:
+        '201':
+          description: The new assignment, in the same shape as the outlet menu list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                additionalProperties: false
+                properties:
+                  data: { $ref: '#/components/schemas/OutletMenuItem' }
+              example:
+                data:
+                  menuItemId: 5
+                  sku: TEA-CHA
+                  name: Masala Chai
+                  category: Tea
+                  basePrice: '3.75'
+                  isActive: true
+                  assigned: true
+                  priceOverride: '3.50'
+                  effectivePrice: '3.50'
+                  isAvailable: true
+        '404':
+          description: The outlet or the menu item does not exist.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              examples:
+                OUTLET_NOT_FOUND: { $ref: '#/components/examples/OutletNotFound' }
+                MENU_ITEM_NOT_FOUND:
+                  value:
+                    error:
+                      code: MENU_ITEM_NOT_FOUND
+                      message: Menu item 999 not found
+        '409':
+          description: The item is already assigned to this outlet.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                error:
+                  code: ALREADY_ASSIGNED
+                  message: Menu item 2 is already assigned to outlet 2
+        '422':
+          description: Validation failed, or the menu item is inactive.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              examples:
+                VALIDATION_ERROR: { $ref: '#/components/examples/ValidationError' }
+                MENU_ITEM_INACTIVE:
+                  value:
+                    error:
+                      code: MENU_ITEM_INACTIVE
+                      message: Menu item 5 is inactive and cannot be assigned
+
+  /api/outlets/{outletId}/menu-items/{menuItemId}:
+    patch:
+      tags: [Assignments]
+      operationId: updateAssignment
+      summary: Change an outlet's price override or availability
+      description: |
+        Partial update; send at least one field. `priceOverride: null` clears the override, so
+        the outlet falls back to the HQ base price. `isAvailable: false` hides the item from the
+        outlet's sellable menu and blocks sales of it, but keeps its stock and history.
+      parameters:
+        - $ref: '#/components/parameters/OutletId'
+        - $ref: '#/components/parameters/MenuItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAssignmentBody' }
+            examples:
+              setOverride:
+                summary: Set a promotional price
+                value: { priceOverride: '3.95' }
+              clearOverride:
+                summary: Go back to the base price
+                value: { priceOverride: null }
+              unavailable:
+                summary: Temporarily stop selling
+                value: { isAvailable: false }
+      responses:
+        '200':
+          description: The updated assignment.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                additionalProperties: false
+                properties:
+                  data: { $ref: '#/components/schemas/OutletMenuItem' }
+              example:
+                data:
+                  menuItemId: 2
+                  sku: COF-LAT
+                  name: Caffe Latte
+                  category: Coffee
+                  basePrice: '4.50'
+                  isActive: true
+                  assigned: true
+                  priceOverride: '3.95'
+                  effectivePrice: '3.95'
+                  isAvailable: true
+        '404':
+          $ref: '#/components/responses/OutletOrAssignmentNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Assignments]
+      operationId: unassignMenuItem
+      summary: Unassign an item from an outlet
+      description: |
+        Removes the assignment and its stock row. Refused once the item has been sold at this
+        outlet (receipts must keep pointing at it); mark it unavailable instead.
+      parameters:
+        - $ref: '#/components/parameters/OutletId'
+        - $ref: '#/components/parameters/MenuItemId'
+      responses:
+        '204':
+          description: Unassigned. No body.
+        '404':
+          $ref: '#/components/responses/OutletOrAssignmentNotFound'
+        '409':
+          description: The item has sales at this outlet.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                error:
+                  code: HAS_SALES_HISTORY
+                  message: >-
+                    Menu item 2 has sales at outlet 1 and cannot be unassigned; mark it
+                    unavailable instead
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/outlets/{outletId}/menu:
+    get:
+      tags: [Outlet menu & inventory]
+      operationId: getSellableMenu
+      summary: What the POS can sell
+      description: |
+        Items that are assigned, available at the outlet and active at HQ, with the effective
+        price and current stock. Ordered by category, then name. Not paginated (an outlet menu is
+        small); capped at 500 rows.
+      parameters:
+        - $ref: '#/components/parameters/OutletId'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Category'
+        - name: inStock
+          in: query
+          description: |
+            `true` = only items with stock > 0. `false` = only **out-of-stock** items
+            (stock = 0), not "no filter". Omit for all sellable items.
+          schema: { $ref: '#/components/schemas/BooleanQuery' }
+      responses:
+        '200':
+          description: The sellable menu.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                additionalProperties: false
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/SellableMenuItem' }
+              example:
+                data:
+                  - menuItemId: 1
+                    sku: COF-ESP
+                    name: Espresso
+                    category: Coffee
+                    effectivePrice: '3.00'
+                    quantity: 40
+                  - menuItemId: 2
+                    sku: COF-LAT
+                    name: Caffe Latte
+                    category: Coffee
+                    effectivePrice: '4.25'
+                    quantity: 40
+                  - menuItemId: 9
+                    sku: PAS-BRW
+                    name: Chocolate Brownie
+                    category: Pastry
+                    effectivePrice: '3.25'
+                    quantity: 2
+        '404':
+          $ref: '#/components/responses/OutletNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/outlets/{outletId}/inventory:
+    get:
+      tags: [Outlet menu & inventory]
+      operationId: listInventory
+      summary: Stock for every assigned item
+      description: |
+        Includes items hidden from `/menu` (unavailable at the outlet or inactive at HQ), so they
+        can still be managed. `status`: `out` = 0, `low` = 1-5, `in_stock` = more than 5.
+        Ordered by category, then name.
+      parameters:
+        - $ref: '#/components/parameters/OutletId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - name: status
+          in: query
+          description: Only rows with this stock status.
+          schema: { $ref: '#/components/schemas/StockStatus' }
+      responses:
+        '200':
+          description: A page of stock rows.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                additionalProperties: false
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/InventoryItem' }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+              example:
+                data:
+                  - menuItemId: 9
+                    sku: PAS-BRW
+                    name: Chocolate Brownie
+                    category: Pastry
+                    isActive: true
+                    isAvailable: true
+                    quantity: 2
+                    status: low
+                    updatedAt: '2026-11-20T08:00:00.000Z'
+                meta: { total: 1, limit: 20, offset: 0 }
+        '404':
+          $ref: '#/components/responses/OutletNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/outlets/{outletId}/inventory/{menuItemId}:
+    patch:
+      tags: [Outlet menu & inventory]
+      operationId: adjustInventory
+      summary: Adjust stock by a signed amount
+      description: |
+        Adds (`adjustment > 0`, stock received) or removes (`adjustment < 0`, waste or correction)
+        stock in one atomic statement. Stock can never go below zero: if it would, nothing
+        changes and you get `409 INSUFFICIENT_STOCK`.
+      parameters:
+        - $ref: '#/components/parameters/OutletId'
+        - $ref: '#/components/parameters/MenuItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdjustInventoryBody' }
+            examples:
+              delivery:
+                summary: Stock received
+                value: { adjustment: 24 }
+              waste:
+                summary: Write off spoiled stock
+                value: { adjustment: -3 }
+      responses:
+        '200':
+          description: The stock row after the adjustment.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                additionalProperties: false
+                properties:
+                  data: { $ref: '#/components/schemas/InventoryItem' }
+              example:
+                data:
+                  menuItemId: 9
+                  sku: PAS-BRW
+                  name: Chocolate Brownie
+                  category: Pastry
+                  isActive: true
+                  isAvailable: true
+                  quantity: 26
+                  status: in_stock
+                  updatedAt: '2026-11-23T09:20:00.000Z'
+        '404':
+          $ref: '#/components/responses/OutletOrAssignmentNotFound'
+        '409':
+          description: The adjustment would make stock negative. Stock is unchanged.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                error:
+                  code: INSUFFICIENT_STOCK
+                  message: Adjustment of -5 would make stock negative
+                  details: { menuItemId: 9, currentQuantity: 2, adjustment: -5 }
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/outlets/{outletId}/sales:
+    post:
+      tags: [Sales]
+      operationId: createSale
+      summary: Create a sale (receipt)
+      description: |
+        One transaction: every line's stock is deducted and the outlet's next receipt number is
+        taken, or nothing changes. Lines for the same `menuItemId` are merged (their combined
+        quantity must still be at most 999). Prices are the outlet's effective prices at the
+        moment of the sale and are copied onto the receipt, so later price changes don't affect
+        it. Every item must be assigned to the outlet, available there and active at HQ.
+      parameters:
+        - $ref: '#/components/parameters/OutletId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSaleBody' }
+            examples:
+              downtownBreakfast:
+                summary: Downtown (DT01) - 2 lattes and a croissant
+                value:
+                  items:
+                    - { menuItemId: 2, quantity: 2 }
+                    - { menuItemId: 7, quantity: 1 }
+              cityMallBrownies:
+                summary: City Mall (ML02) - 3 brownies, only 2 in stock -> 409
+                value:
+                  items:
+                    - { menuItemId: 9, quantity: 3 }
+      responses:
+        '201':
+          description: The receipt.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                additionalProperties: false
+                properties:
+                  data: { $ref: '#/components/schemas/Sale' }
+              example:
+                data:
+                  id: 1
+                  outletId: 1
+                  receiptNumber: 1
+                  receiptNo: DT01-000001
+                  totalAmount: '11.75'
+                  createdAt: '2026-11-23T09:15:42.318Z'
+                  items:
+                    - menuItemId: 2
+                      sku: COF-LAT
+                      name: Caffe Latte
+                      quantity: 2
+                      unitPrice: '4.50'
+                      lineTotal: '9.00'
+                    - menuItemId: 7
+                      sku: PAS-CRO
+                      name: Butter Croissant
+                      quantity: 1
+                      unitPrice: '2.75'
+                      lineTotal: '2.75'
+        '404':
+          $ref: '#/components/responses/OutletNotFound'
+        '409':
+          description: |
+            Not enough stock for a line. The whole sale is rolled back: no stock is deducted and no
+            receipt number is used. `details` names the first line that was short.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                error:
+                  code: INSUFFICIENT_STOCK
+                  message: 'Not enough stock for menu item 9: requested 3, available 2'
+                  details: { menuItemId: 9, requested: 3, available: 2 }
+        '422':
+          description: |
+            Validation failed (including a merged line over 999), an item is not assigned to this
+            outlet, or an item is assigned but unavailable here / inactive at HQ.
+            `details.menuItemIds` lists every offending item.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              examples:
+                VALIDATION_ERROR:
+                  value:
+                    error:
+                      code: VALIDATION_ERROR
+                      message: Request validation failed
+                      details:
+                        - location: body
+                          path: items.0.quantity
+                          message: 'Too small: expected number to be >=1'
+                ITEM_NOT_ASSIGNED:
+                  summary: Masala Chai is not on City Mall's menu
+                  value:
+                    error:
+                      code: ITEM_NOT_ASSIGNED
+                      message: One or more items are not on this outlet’s menu
+                      details: { menuItemIds: [5] }
+                ITEM_NOT_SELLABLE:
+                  value:
+                    error:
+                      code: ITEM_NOT_SELLABLE
+                      message: One or more items cannot be sold right now
+                      details: { menuItemIds: [12] }
+    get:
+      tags: [Sales]
+      operationId: listSales
+      summary: List an outlet's sales
+      description: Newest first, each sale with its lines.
+      parameters:
+        - $ref: '#/components/parameters/OutletId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - name: receiptNumber
+          in: query
+          description: |
+            Exact receipt number at this outlet (the number part of `receiptNo`), e.g. `1` for
+            `DT01-000001`.
+          schema: { $ref: '#/components/schemas/IdParam' }
+      responses:
+        '200':
+          description: A page of sales.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                additionalProperties: false
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Sale' }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+              example:
+                data:
+                  - id: 1
+                    outletId: 1
+                    receiptNumber: 1
+                    receiptNo: DT01-000001
+                    totalAmount: '11.75'
+                    createdAt: '2026-11-23T09:15:42.318Z'
+                    items:
+                      - menuItemId: 2
+                        sku: COF-LAT
+                        name: Caffe Latte
+                        quantity: 2
+                        unitPrice: '4.50'
+                        lineTotal: '9.00'
+                      - menuItemId: 7
+                        sku: PAS-CRO
+                        name: Butter Croissant
+                        quantity: 1
+                        unitPrice: '2.75'
+                        lineTotal: '2.75'
+                meta: { total: 1, limit: 20, offset: 0 }
+        '404':
+          $ref: '#/components/responses/OutletNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/outlets/{outletId}/sales/{saleId}:
+    get:
+      tags: [Sales]
+      operationId: getSale
+      summary: Get one sale
+      description: A sale is only visible through the outlet it belongs to.
+      parameters:
+        - $ref: '#/components/parameters/OutletId'
+        - name: saleId
+          in: path
+          required: true
+          description: Sale id (not the receipt number).
+          schema: { $ref: '#/components/schemas/IdParam' }
+          example: 1
+      responses:
+        '200':
+          description: The sale with its lines.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                additionalProperties: false
+                properties:
+                  data: { $ref: '#/components/schemas/Sale' }
+              example:
+                data:
+                  id: 1
+                  outletId: 1
+                  receiptNumber: 1
+                  receiptNo: DT01-000001
+                  totalAmount: '11.75'
+                  createdAt: '2026-11-23T09:15:42.318Z'
+                  items:
+                    - menuItemId: 2
+                      sku: COF-LAT
+                      name: Caffe Latte
+                      quantity: 2
+                      unitPrice: '4.50'
+                      lineTotal: '9.00'
+                    - menuItemId: 7
+                      sku: PAS-CRO
+                      name: Butter Croissant
+                      quantity: 1
+                      unitPrice: '2.75'
+                      lineTotal: '2.75'
+        '404':
+          description: The outlet does not exist, or the sale does not belong to it.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              examples:
+                OUTLET_NOT_FOUND: { $ref: '#/components/examples/OutletNotFound' }
+                SALE_NOT_FOUND:
+                  value:
+                    error:
+                      code: SALE_NOT_FOUND
+                      message: Sale 1 not found at outlet 2
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/reports/revenue-by-outlet:
+    get:
+      tags: [Reports]
+      operationId: getRevenueByOutlet
+      summary: Revenue by outlet
+      description: |
+        Every outlet, including those with no sales in the range, highest revenue first.
+        `averageTicket` is rounded to 2 decimals in the database. Not paginated: one row per
+        outlet. `meta` holds the totals across all outlets.
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Revenue per outlet with grand totals.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                additionalProperties: false
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/OutletRevenue' }
+                  meta: { $ref: '#/components/schemas/RevenueMeta' }
+              example:
+                data:
+                  - outletId: 1
+                    code: DT01
+                    name: Downtown
+                    saleCount: 2
+                    totalRevenue: '18.25'
+                    averageTicket: '9.13'
+                  - outletId: 3
+                    code: AP03
+                    name: Airport
+                    saleCount: 1
+                    totalRevenue: '5.50'
+                    averageTicket: '5.50'
+                  - outletId: 2
+                    code: ML02
+                    name: City Mall
+                    saleCount: 0
+                    totalRevenue: '0.00'
+                    averageTicket: '0.00'
+                meta: { grandTotal: '23.75', totalSales: 3 }
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/reports/outlets/{outletId}/top-items:
+    get:
+      tags: [Reports]
+      operationId: getTopItems
+      summary: Best-selling items at an outlet
+      description: |
+        By quantity sold (ties: revenue, then name). Items no longer assigned or active still
+        count, since they were really sold. An outlet with no sales returns `[]`.
+      parameters:
+        - $ref: '#/components/parameters/OutletId'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - name: limit
+          in: query
+          description: How many items to return.
+          schema: { type: integer, minimum: 1, maximum: 20, default: 5 }
+      responses:
+        '200':
+          description: The best sellers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                additionalProperties: false
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/TopItem' }
+              example:
+                data:
+                  - menuItemId: 2
+                    sku: COF-LAT
+                    name: Caffe Latte
+                    quantitySold: 3
+                    revenue: '13.50'
+                  - menuItemId: 7
+                    sku: PAS-CRO
+                    name: Butter Croissant
+                    quantitySold: 1
+                    revenue: '2.75'
+        '404':
+          $ref: '#/components/responses/OutletNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+components:
+  parameters:
+    OutletId:
+      name: outletId
+      in: path
+      required: true
+      description: Outlet id.
+      schema: { $ref: '#/components/schemas/IdParam' }
+      example: 1
+    MenuItemId:
+      name: menuItemId
+      in: path
+      required: true
+      description: Menu item id.
+      schema: { $ref: '#/components/schemas/IdParam' }
+      example: 2
+    Limit:
+      name: limit
+      in: query
+      description: Page size.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Offset:
+      name: offset
+      in: query
+      description: Rows to skip.
+      schema: { type: integer, minimum: 0, maximum: 1000000, default: 0 }
+    Search:
+      name: search
+      in: query
+      description: Case-insensitive substring of the item name or SKU, e.g. `latte`.
+      schema: { $ref: '#/components/schemas/SearchText' }
+    Category:
+      name: category
+      in: query
+      description: Exact category name, e.g. `Coffee`.
+      schema: { type: string, minLength: 1, maxLength: 60 }
+    From:
+      name: from
+      in: query
+      description: |
+        Start of the range, inclusive. ISO 8601 datetime with timezone, e.g.
+        `2026-11-23T00:00:00+06:00`.
+      schema: { type: string, format: date-time }
+    To:
+      name: to
+      in: query
+      description: |
+        End of the range, exclusive; must be after `from`. ISO 8601 datetime with timezone,
+        e.g. `2026-11-24T00:00:00+06:00`.
+      schema: { type: string, format: date-time }
+
+  schemas:
+    Money:
+      type: string
+      pattern: '^\d+\.\d{2}$'
+      description: Decimal amount with exactly two decimals (NUMERIC(12,2) in the database).
+      examples: ['4.50']
+    MoneyInput:
+      type: string
+      pattern: '^\d{1,10}(\.\d{1,2})?$'
+      description: Non-negative decimal string, 0-2 decimals. Never a JSON number.
+      examples: ['4.50']
+    Id:
+      type: integer
+      minimum: 1
+      maximum: 9007199254740991
+      description: Database id (BIGINT, always within JavaScript's safe-integer range).
+    IdParam:
+      type: integer
+      minimum: 1
+      maximum: 999999999999999
+      description: Positive integer id, digits only (up to 15).
+    Timestamp:
+      type: string
+      format: date-time
+      description: ISO 8601, UTC.
+      examples: ['2026-11-23T09:15:42.318Z']
+    SearchText:
+      type: string
+      minLength: 1
+      maxLength: 100
+      description: Trimmed before use.
+    BooleanQuery:
+      type: string
+      enum: ['true', 'false']
+    StockStatus:
+      type: string
+      enum: [in_stock, low, out]
+      description: '`out` = 0, `low` = 1-5, `in_stock` = more than 5.'
+
+    ListMeta:
+      type: object
+      required: [total, limit, offset]
+      additionalProperties: false
+      properties:
+        total: { type: integer, minimum: 0, description: Rows matching the filters. }
+        limit: { type: integer }
+        offset: { type: integer }
+    RevenueMeta:
+      type: object
+      required: [grandTotal, totalSales]
+      additionalProperties: false
+      properties:
+        grandTotal: { $ref: '#/components/schemas/Money' }
+        totalSales: { type: integer, minimum: 0 }
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              pattern: '^[A-Z][A-Z0-9_]*$'
+              description: Stable, machine-readable error code.
+            message:
+              type: string
+              description: Human-readable; may change. Don't parse it.
+            details:
+              description: |
+                Code-specific. `VALIDATION_ERROR`: an array of `ValidationIssue`.
+                `INSUFFICIENT_STOCK`: the item and quantities. `ITEM_NOT_ASSIGNED` /
+                `ITEM_NOT_SELLABLE`: `{ menuItemIds }`.
+              oneOf:
+                - type: array
+                  items: { $ref: '#/components/schemas/ValidationIssue' }
+                - type: object
+    ValidationIssue:
+      type: object
+      required: [location, path, message]
+      additionalProperties: false
+      properties:
+        location: { type: string, enum: [params, query, body] }
+        path:
+          type: string
+          description: Dotted path to the field, e.g. `items.0.quantity`.
+        message: { type: string }
+
+    Health:
+      type: object
+      required: [status, db, uptime]
+      additionalProperties: false
+      properties:
+        status: { type: string, const: ok }
+        db: { type: string, const: up }
+        uptime: { type: integer, minimum: 0, description: Process uptime in seconds. }
+
+    Outlet:
+      type: object
+      required: [id, code, name, address, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        code: { type: string, examples: [DT01] }
+        name: { type: string, examples: [Downtown] }
+        address: { type: [string, 'null'] }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+        updatedAt: { $ref: '#/components/schemas/Timestamp' }
+    CreateOutletBody:
+      type: object
+      required: [code, name]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          minLength: 2
+          maxLength: 20
+          pattern: '^[A-Za-z0-9_-]+$'
+          description: Unique short code, used as the receipt prefix. Trimmed.
+        name: { type: string, minLength: 1, maxLength: 120, description: Trimmed; not blank. }
+        address:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 500
+          description: Optional. Trimmed; not blank when given.
+
+    MenuItem:
+      type: object
+      required: [id, sku, name, category, basePrice, isActive, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        sku: { type: string, examples: [COF-LAT] }
+        name: { type: string, examples: [Caffe Latte] }
+        category: { type: string, examples: [Coffee] }
+        basePrice: { $ref: '#/components/schemas/Money' }
+        isActive: { type: boolean }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+        updatedAt: { $ref: '#/components/schemas/Timestamp' }
+    CreateMenuItemBody:
+      type: object
+      required: [sku, name, category, basePrice]
+      additionalProperties: false
+      properties:
+        sku: { type: string, minLength: 1, maxLength: 40, description: Unique. Trimmed. }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        category: { type: string, minLength: 1, maxLength: 60 }
+        basePrice: { $ref: '#/components/schemas/MoneyInput' }
+    UpdateMenuItemBody:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      description: At least one field. `sku` is not editable.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        category: { type: string, minLength: 1, maxLength: 60 }
+        basePrice: { $ref: '#/components/schemas/MoneyInput' }
+        isActive: { type: boolean }
+
+    OutletMenuItem:
+      type: object
+      required:
+        - menuItemId
+        - sku
+        - name
+        - category
+        - basePrice
+        - isActive
+        - assigned
+        - priceOverride
+        - effectivePrice
+        - isAvailable
+      additionalProperties: false
+      properties:
+        menuItemId: { $ref: '#/components/schemas/Id' }
+        sku: { type: string }
+        name: { type: string }
+        category: { type: string }
+        basePrice: { $ref: '#/components/schemas/Money' }
+        isActive: { type: boolean, description: Active at HQ. }
+        assigned: { type: boolean }
+        priceOverride:
+          description: Outlet price; null = base price (or not assigned).
+          anyOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        effectivePrice:
+          description: What the outlet charges. Null when not assigned.
+          anyOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        isAvailable:
+          type: [boolean, 'null']
+          description: Available at this outlet. Null when not assigned.
+    AssignMenuItemBody:
+      type: object
+      required: [menuItemId]
+      additionalProperties: false
+      properties:
+        menuItemId: { $ref: '#/components/schemas/Id' }
+        priceOverride:
+          description: Omit or null to sell at the base price.
+          anyOf:
+            - $ref: '#/components/schemas/MoneyInput'
+            - type: 'null'
+    UpdateAssignmentBody:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      description: At least one field.
+      properties:
+        priceOverride:
+          description: null clears the override (back to the base price).
+          anyOf:
+            - $ref: '#/components/schemas/MoneyInput'
+            - type: 'null'
+        isAvailable: { type: boolean }
+
+    SellableMenuItem:
+      type: object
+      required: [menuItemId, sku, name, category, effectivePrice, quantity]
+      additionalProperties: false
+      properties:
+        menuItemId: { $ref: '#/components/schemas/Id' }
+        sku: { type: string }
+        name: { type: string }
+        category: { type: string }
+        effectivePrice: { $ref: '#/components/schemas/Money' }
+        quantity: { type: integer, minimum: 0, description: Current stock. }
+    InventoryItem:
+      type: object
+      required:
+        [menuItemId, sku, name, category, isActive, isAvailable, quantity, status, updatedAt]
+      additionalProperties: false
+      properties:
+        menuItemId: { $ref: '#/components/schemas/Id' }
+        sku: { type: string }
+        name: { type: string }
+        category: { type: string }
+        isActive: { type: boolean, description: Active at HQ. }
+        isAvailable: { type: boolean, description: Available at this outlet. }
+        quantity: { type: integer, minimum: 0 }
+        status: { $ref: '#/components/schemas/StockStatus' }
+        updatedAt: { $ref: '#/components/schemas/Timestamp' }
+    AdjustInventoryBody:
+      type: object
+      required: [adjustment]
+      additionalProperties: false
+      properties:
+        adjustment:
+          type: integer
+          minimum: -10000
+          maximum: 10000
+          not: { const: 0 }
+          description: Signed delta, not zero. Positive = received, negative = waste/correction.
+
+    CreateSaleBody:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { $ref: '#/components/schemas/SaleLineInput' }
+    SaleLineInput:
+      type: object
+      required: [menuItemId, quantity]
+      additionalProperties: false
+      properties:
+        menuItemId: { $ref: '#/components/schemas/Id' }
+        quantity: { type: integer, minimum: 1, maximum: 999 }
+    Sale:
+      type: object
+      required: [id, outletId, receiptNumber, receiptNo, totalAmount, createdAt, items]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        outletId: { $ref: '#/components/schemas/Id' }
+        receiptNumber:
+          type: integer
+          minimum: 1
+          description: Sequential per outlet, starting at 1, no gaps.
+        receiptNo:
+          type: string
+          description: Outlet code + receipt number padded to at least 6 digits.
+          examples: [DT01-000001]
+        totalAmount: { $ref: '#/components/schemas/Money' }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+        items:
+          type: array
+          description: Ordered by menuItemId.
+          items: { $ref: '#/components/schemas/SaleItem' }
+    SaleItem:
+      type: object
+      required: [menuItemId, sku, name, quantity, unitPrice, lineTotal]
+      additionalProperties: false
+      properties:
+        menuItemId: { $ref: '#/components/schemas/Id' }
+        sku: { type: string }
+        name: { type: string }
+        quantity: { type: integer, minimum: 1 }
+        unitPrice: { $ref: '#/components/schemas/Money' }
+        lineTotal: { $ref: '#/components/schemas/Money' }
+
+    OutletRevenue:
+      type: object
+      required: [outletId, code, name, saleCount, totalRevenue, averageTicket]
+      additionalProperties: false
+      properties:
+        outletId: { $ref: '#/components/schemas/Id' }
+        code: { type: string }
+        name: { type: string }
+        saleCount: { type: integer, minimum: 0 }
+        totalRevenue: { $ref: '#/components/schemas/Money' }
+        averageTicket: { $ref: '#/components/schemas/Money' }
+    TopItem:
+      type: object
+      required: [menuItemId, sku, name, quantitySold, revenue]
+      additionalProperties: false
+      properties:
+        menuItemId: { $ref: '#/components/schemas/Id' }
+        sku: { type: string }
+        name: { type: string }
+        quantitySold: { type: integer, minimum: 1 }
+        revenue: { $ref: '#/components/schemas/Money' }
+
+  examples:
+    OutletNotFound:
+      value:
+        error:
+          code: OUTLET_NOT_FOUND
+          message: Outlet 999 not found
+    ValidationError:
+      value:
+        error:
+          code: VALIDATION_ERROR
+          message: Request validation failed
+          details:
+            - { location: params, path: outletId, message: must be a positive integer id }
+            - { location: body, path: colour, message: Unknown field }
+
+  responses:
+    ValidationError:
+      description: |
+        The params, query or body failed validation. `details` lists every problem found,
+        across all locations, in one response.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          examples:
+            VALIDATION_ERROR: { $ref: '#/components/examples/ValidationError' }
+    OutletNotFound:
+      description: No outlet with this id.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          examples:
+            OUTLET_NOT_FOUND: { $ref: '#/components/examples/OutletNotFound' }
+    OutletOrAssignmentNotFound:
+      description: The outlet does not exist, or the item is not assigned to it.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          examples:
+            OUTLET_NOT_FOUND: { $ref: '#/components/examples/OutletNotFound' }
+            ASSIGNMENT_NOT_FOUND:
+              value:
+                error:
+                  code: ASSIGNMENT_NOT_FOUND
+                  message: Menu item 5 is not assigned to outlet 2
+    DocsUnavailable:
+      description: |
+        The OpenAPI file was missing or invalid when the server started. The rest of the API
+        works normally; the reason is in the startup log.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example:
+            error:
+              code: DOCS_UNAVAILABLE
+              message: API documentation is unavailable
