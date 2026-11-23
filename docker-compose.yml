@@ -1,5 +1,26 @@
-# Local Postgres only. The app itself runs via `npm run dev` (or the Dockerfile, added later).
+# Local development: `docker compose up -d db db_test` + `npm run dev`.
+# Production image locally: `docker compose up --build` → http://localhost:3000/api/docs
 services:
+  # The production image (Dockerfile), wired to the `db` service. Migrates and seeds on start.
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Host `db` is the service name on the compose network. URL-encode the password if it
+      # contains characters such as @ : / #.
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DB_SSL: 'false'
+      CORS_ORIGIN: http://localhost:${APP_PORT:-3000}
+      LOG_LEVEL: info
+      SEED_ON_START: 'true'
+    ports:
+      - '${APP_PORT:-3000}:3000'
+
   db:
     image: postgres:16-alpine
     restart: unless-stopped
