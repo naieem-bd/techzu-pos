@@ -131,7 +131,9 @@ afterAll(async () => {
 });
 
 describe('OpenAPI spec covers every Express route', () => {
-  const app = createApp();
+  // API routes only: without this, a built client/dist adds the SPA's `GET *` fallback, which is
+  // not an API operation (the SPA itself is covered by spa.test.ts).
+  const app = createApp({ clientDistPath: path.join(tmpdir(), 'techzu-pos-no-client-dist') });
 
   it('documents exactly the routes the app serves (method + path)', () => {
     const served = listRoutes(app);
