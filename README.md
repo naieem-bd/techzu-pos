@@ -15,9 +15,33 @@ and keeps its own stock.
 
 ```bash
 cp .env.example .env        # then edit values
-docker compose up -d        # starts db (dev) and db_test (tests)
+docker compose up -d db db_test   # Postgres for dev and for tests
 npm install
 ```
+
+## Run the production image locally
+
+```bash
+docker compose up --build   # db + app; migrates and seeds demo data on start
+```
+
+API reference: http://localhost:3000/api/docs · health: http://localhost:3000/api/health.
+The container runs `dist/start.js`: migrations, then the idempotent seed when
+`SEED_ON_START=true`, then the server. Use `APP_PORT` in `.env` if port 3000 is taken.
+
+## Deploy to Render (free tier)
+
+The database is [Neon](https://neon.tech) (managed Postgres 16, TLS required).
+
+1. In Neon, create a project in the Singapore region and copy the **direct** (non-pooled)
+   connection string (host without `-pooler`).
+2. In Render choose **New → Blueprint** and select this repo. `render.yaml` creates a free
+   Docker web service on `main` (Singapore, `healthCheckPath: /api/health`).
+3. Paste the Neon string as the `DATABASE_URL` secret. `DB_SSL=true` is already set: the server
+   verifies Neon's certificate and uses channel binding.
+
+Render provides `PORT` and `RENDER_EXTERNAL_URL` (used as the CORS origin when `CORS_ORIGIN`
+is unset). Free services sleep when idle, so the first request after a pause is slow.
 
 ## Scripts
 

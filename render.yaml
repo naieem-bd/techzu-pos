@@ -1,0 +1,35 @@
+# Render Blueprint: one free Docker web service. The database is Neon (managed Postgres, TLS),
+# not a Render resource. Render → New → Blueprint → pick this repo, then paste DATABASE_URL.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Free-tier caveat: the service sleeps after ~15 min idle, so the first request cold-starts.
+
+services:
+  - type: web
+    name: techzu-pos
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    # Render sets PORT and RENDER_EXTERNAL_URL itself; CORS_ORIGIN defaults to the latter.
+    envVars:
+      # Secret, entered in the dashboard (never committed): Neon's DIRECT (non-pooled) string,
+      # e.g. postgresql://...@ep-<name>.ap-southeast-1.aws.neon.tech/<db>?sslmode=require&channel_binding=require
+      - key: DATABASE_URL
+        sync: false
+      # Neon requires TLS; the server verifies the certificate and uses channel binding.
+      - key: DB_SSL
+        value: 'true'
+      - key: NODE_ENV
+        value: production
+      # Idempotent demo data (ON CONFLICT DO NOTHING, never resets stock).
+      - key: SEED_ON_START
+        value: 'true'
+      - key: LOG_LEVEL
+        value: info
+      # One small instance: a small pool is plenty and stays well inside Neon's connection limit.
+      - key: DB_POOL_MAX
+        value: '5'
