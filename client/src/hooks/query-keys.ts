@@ -1,8 +1,10 @@
 import type {
   DateRange,
+  InventoryListParams,
   MenuItemListParams,
   OutletListParams,
   OutletMenuItemListParams,
+  SaleListParams,
 } from '@/api/types';
 
 /**
@@ -24,6 +26,20 @@ export const queryKeys = {
     byOutlet: (outletId: number) => ['outlet-menu-items', outletId] as const,
     list: (outletId: number, params: OutletMenuItemListParams) =>
       ['outlet-menu-items', outletId, params] as const,
+  },
+  sellableMenu: {
+    all: ['sellable-menu'] as const,
+    byOutlet: (outletId: number) => ['sellable-menu', outletId] as const,
+  },
+  inventory: {
+    all: ['inventory'] as const,
+    byOutlet: (outletId: number) => ['inventory', outletId] as const,
+    list: (outletId: number, params: InventoryListParams) =>
+      ['inventory', outletId, params] as const,
+  },
+  sales: {
+    byOutlet: (outletId: number) => ['sales', outletId] as const,
+    list: (outletId: number, params: SaleListParams) => ['sales', outletId, params] as const,
   },
   reports: {
     all: ['reports'] as const,

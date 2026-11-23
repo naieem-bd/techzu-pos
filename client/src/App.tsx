@@ -7,7 +7,9 @@ import { MasterMenuPage } from '@/pages/hq/menu/MasterMenuPage';
 import { OutletsPage } from '@/pages/hq/outlets/OutletsPage';
 import { ReportsPage } from '@/pages/hq/reports/ReportsPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
-import { PlaceholderPage } from '@/pages/PlaceholderPage';
+import { InventoryPage } from '@/pages/outlet/inventory/InventoryPage';
+import { PosPage } from '@/pages/outlet/pos/PosPage';
+import { SalesHistoryPage } from '@/pages/outlet/sales/SalesHistoryPage';
 
 /** "/" opens the home screen of whoever we're viewing as. */
 const HomeRedirect = () => {
@@ -28,9 +30,9 @@ export const App = () => (
       </Route>
       <Route path="outlet">
         <Route index element={<Navigate to={OUTLET_HOME} replace />} />
-        <Route path="sale" element={<PlaceholderPage title="New sale" />} />
-        <Route path="inventory" element={<PlaceholderPage title="Inventory" />} />
-        <Route path="sales" element={<PlaceholderPage title="Sales history" />} />
+        <Route path="sale" element={<PosPage />} />
+        <Route path="inventory" element={<InventoryPage />} />
+        <Route path="sales" element={<SalesHistoryPage />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />
     </Route>

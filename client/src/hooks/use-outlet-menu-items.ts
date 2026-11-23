@@ -18,8 +18,14 @@ export const useOutletMenuItems = (outletId: number | null, params: OutletMenuIt
 
 const useInvalidateOutletMenu = (outletId: number) => {
   const queryClient = useQueryClient();
+  // Assignment, price and availability changes also change what this outlet's POS sells and
+  // which rows its inventory lists.
   return () =>
-    queryClient.invalidateQueries({ queryKey: queryKeys.outletMenuItems.byOutlet(outletId) });
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.outletMenuItems.byOutlet(outletId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.sellableMenu.byOutlet(outletId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.byOutlet(outletId) }),
+    ]);
 };
 
 export const useAssignMenuItem = (outletId: number) => {

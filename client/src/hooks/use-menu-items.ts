@@ -26,11 +26,14 @@ export const useMenuCategories = () =>
 
 const useInvalidateMenu = () => {
   const queryClient = useQueryClient();
-  // Master items appear (with base price/active flag) in every outlet's assignment list too.
+  // Master items appear (with base price/active flag) in every outlet's assignment list, POS
+  // menu and inventory too.
   return () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.menuItems.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.outletMenuItems.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.sellableMenu.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all }),
     ]);
 };
 

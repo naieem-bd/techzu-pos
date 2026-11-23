@@ -135,3 +135,68 @@ export interface TopItem {
   quantitySold: number;
   revenue: Money;
 }
+
+// ---- Outlet POS menu & inventory ----
+export interface SellableMenuItem {
+  menuItemId: number;
+  sku: string;
+  name: string;
+  category: string;
+  effectivePrice: Money;
+  quantity: number;
+}
+
+export type StockStatus = 'in_stock' | 'low' | 'out';
+
+export interface InventoryItem {
+  menuItemId: number;
+  sku: string;
+  name: string;
+  category: string;
+  isActive: boolean;
+  isAvailable: boolean;
+  quantity: number;
+  status: StockStatus;
+  updatedAt: string;
+}
+
+export interface InventoryListParams extends PageParams {
+  status?: StockStatus;
+}
+
+export interface AdjustInventoryBody {
+  adjustment: number;
+}
+
+// ---- Sales ----
+export interface SaleItem {
+  menuItemId: number;
+  sku: string;
+  name: string;
+  quantity: number;
+  unitPrice: Money;
+  lineTotal: Money;
+}
+
+export interface Sale {
+  id: number;
+  outletId: number;
+  receiptNumber: number;
+  receiptNo: string;
+  totalAmount: Money;
+  createdAt: string;
+  items: SaleItem[];
+}
+
+export interface SaleLineInput {
+  menuItemId: number;
+  quantity: number;
+}
+
+export interface CreateSaleBody {
+  items: SaleLineInput[];
+}
+
+export interface SaleListParams extends PageParams, DateRange {
+  receiptNumber?: number;
+}

@@ -52,3 +52,13 @@ export const formatDate = (iso: string): string => DATE_FORMAT.format(new Date(i
 /** "2026-11-01", "2026-11-22" -> "1 Nov 2026 – 22 Nov 2026" */
 export const formatDateRange = ({ fromDate, toDate }: DateInputRange): string =>
   `${DATE_FORMAT.format(parseLocalDate(fromDate))} – ${DATE_FORMAT.format(parseLocalDate(toDate))}`;
+
+const DATE_TIME_FORMAT = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+/** ISO timestamp -> "22 Nov, 10:58" in the viewer's timezone. */
+export const formatDateTime = (iso: string): string => DATE_TIME_FORMAT.format(new Date(iso));
