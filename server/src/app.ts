@@ -7,6 +7,7 @@ import { errorHandler } from './middlewares/error-handler';
 import { notFound } from './middlewares/not-found';
 import { apiRateLimit } from './middlewares/rate-limit';
 import { requestLogger } from './middlewares/request-logger';
+import { createSpaHandler, DEFAULT_CLIENT_DIST_PATH } from './middlewares/spa';
 import { createApiRouter } from './routes';
 import { logger } from './utils/logger';
 import { DEFAULT_OPENAPI_SPEC_PATH, loadOpenApiSpec } from './utils/openapi-spec';
@@ -14,6 +15,8 @@ import { DEFAULT_OPENAPI_SPEC_PATH, loadOpenApiSpec } from './utils/openapi-spec
 export interface AppOptions {
   /** Overrides the spec location; tests use it to simulate a missing or broken spec. */
   openApiSpecPath?: string;
+  /** Overrides the built SPA location; tests point it at a temp dir (or a missing one). */
+  clientDistPath?: string;
 }
 
 /** Builds the Express app without listening, so tests can drive it with Supertest. */
@@ -40,6 +43,11 @@ export const createApp = (options: AppOptions = {}): Express => {
   app.use(express.json({ limit: '100kb' }));
 
   app.use('/api', apiRateLimit, createApiRouter({ openApi }));
+
+  // Same-origin SPA (client/dist) when a build exists; an API-only image simply skips it.
+  // helmet's default CSP above (script-src 'self') suits Vite's external module scripts.
+  const spa = createSpaHandler(options.clientDistPath ?? DEFAULT_CLIENT_DIST_PATH);
+  if (spa) app.use(spa);
 
   app.use(notFound);
   app.use(errorHandler);
