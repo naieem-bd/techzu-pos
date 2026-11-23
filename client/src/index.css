@@ -1,0 +1,91 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+/*
+ * Design tokens from .mockups/*.html. The shadcn variable names (--background, --primary, ...)
+ * are mapped onto them so the primitives pick up the mockup palette unchanged.
+ */
+:root {
+  --background: #f6f7f9;
+  --foreground: #101828;
+  --card: #ffffff;
+  --card-foreground: #101828;
+  --popover: #ffffff;
+  --popover-foreground: #101828;
+  --primary: #2457d6;
+  --primary-hover: #1a44ad;
+  --primary-foreground: #ffffff;
+  --secondary: #ffffff;
+  --secondary-foreground: #101828;
+  --muted: #f9fafb;
+  --muted-foreground: #475467;
+  --subtle-foreground: #5d6b82;
+  --accent: #eef3ff;
+  --accent-foreground: #2457d6;
+  --destructive: #b42318;
+  --border: #e4e7ec;
+  --input: #e4e7ec;
+  --ring: #2457d6;
+  --track: #f2f4f7;
+  --switch-off: #d0d5dd;
+
+  --ok: #067647;
+  --ok-soft: #ecfdf3;
+  --warn: #93370d;
+  --warn-soft: #fffaeb;
+  --neutral: #344054;
+  --neutral-soft: #f2f4f7;
+  --danger: #b42318;
+  --danger-soft: #fef3f2;
+}
+
+@theme inline {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-track: var(--track);
+  --color-switch-off: var(--switch-off);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-neutral: var(--neutral);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  /* 12px cards, 8px controls (mockup). */
+  --radius-card: 12px;
+  --radius-control: 8px;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    margin: 0;
+  }
+}
