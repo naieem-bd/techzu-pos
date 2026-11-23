@@ -1,15 +1,36 @@
-# Never ship secrets or local state into the image
+# Keep the build context small and never ship secrets or local state into the image.
+
+# Dependencies and build output (rebuilt inside the image)
+node_modules
+**/node_modules
+dist
+**/dist
+*.tsbuildinfo
+coverage
+**/coverage
+
+# Secrets (keep only the placeholder example)
 .env
 .env.*
 !.env.example
+
+# VCS, editor, OS, logs
 .git
 .gitignore
-node_modules
-**/node_modules
-**/dist
-coverage
-*.log
 .vscode
 .idea
+.DS_Store
+Thumbs.db
+*.log
+
+# Docs: only the OpenAPI spec is needed at runtime (/api/docs)
+docs/*
+!docs/openapi.yaml
+
+# Assistant / local tooling
+CLAUDE.md
 .claude
+
+# Deployment config is not part of the app
 docker-compose.yml
+render.yaml
