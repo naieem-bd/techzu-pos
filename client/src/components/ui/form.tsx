@@ -19,8 +19,10 @@ const FormItemContext = React.createContext<{ id: string } | null>(null);
 export const FormField = <
   TFieldValues extends FieldValues = FieldValues,
   TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
+  // Lets forms whose Zod schema transforms values (string input -> number output) type-check.
+  TTransformedValues = TFieldValues,
 >(
-  props: ControllerProps<TFieldValues, TName>,
+  props: ControllerProps<TFieldValues, TName, TTransformedValues>,
 ) => (
   <FormFieldContext.Provider value={{ name: props.name }}>
     <Controller {...props} />
