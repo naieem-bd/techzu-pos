@@ -4,7 +4,7 @@ A central HQ system for a multi-outlet food & beverage business. HQ manages the 
 assigns items to outlets with optional per-outlet prices and sees sales reports. Each outlet sells
 from its own menu, keeps its own stock and issues its own sequential receipt numbers.
 
-**Live demo:** https://techzu-pos.onrender.com
+**Live demo:** https://techzu-pos.onrender.com<br>
 **API reference (interactive):** https://techzu-pos.onrender.com/api/docs
 
 > Hosted on Render's free tier: the service sleeps after about 15 minutes without traffic, so the
@@ -12,6 +12,29 @@ from its own menu, keeps its own stock and issues its own sequential receipt num
 
 ![HQ Reports screen: revenue by outlet, summary cards and top 5 items](docs/screenshots/hq-reports.png)
 *HQ → Reports: revenue, sale count and average ticket per outlet, with the top 5 items for the selected outlet.*
+
+## Assessment deliverables
+
+Where to find each item from the brief's "Required Deliverables":
+
+| # | Deliverable | Where |
+| --- | --- | --- |
+| 1 | Deployed instance for end users | [techzu-pos.onrender.com](https://techzu-pos.onrender.com) · [API reference](https://techzu-pos.onrender.com/api/docs) |
+| 2 | GitHub repository | This repo, release [`v1.0.0`](https://github.com/naieem-bd/techzu-pos/releases/tag/v1.0.0) |
+| 2.1 | Proper folder structure | [Architecture](#architecture) (layers) · `server/`, `client/`, `docs/` |
+| 2.2 | Clean commits | One squash-merged [pull request](https://github.com/naieem-bd/techzu-pos/pulls?q=is%3Apr+is%3Aclosed) per feature, Conventional Commits |
+| 2.3.1 | README: setup instructions | [Quick start](#quick-start) · [Configuration](#configuration) |
+| 2.3.2 | README: API endpoints | [API](#api) · [interactive docs](https://techzu-pos.onrender.com/api/docs) · [`docs/openapi.yaml`](docs/openapi.yaml) |
+| 2.3.3 | README: schema explanation | [Database schema](#database-schema) |
+| 2.3.4 | README: architecture explanation | [Architecture](#architecture) · [Concurrency and data integrity](#concurrency-and-data-integrity) |
+| 2.3.5 | README: scaling strategy | [Scaling strategy](#scaling-strategy) |
+| 3 | Architecture documentation | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| 3.1 | ERD diagram (schema and relationships) | [ERD](docs/ARCHITECTURE.md#2-data-model-and-erd) |
+| 3.2 | Scaling plan: 10 outlets, 100,000 transactions/month | [Scaling plan](docs/ARCHITECTURE.md#5-scaling-plan-10-outlets-100000-transactions-per-month): [database](docs/ARCHITECTURE.md#database-scaling) · [reporting](docs/ARCHITECTURE.md#reporting-performance) · [infrastructure](docs/ARCHITECTURE.md#infrastructure) · [architectural evolution](docs/ARCHITECTURE.md#architectural-evolution) |
+| 4 | Conversion to microservices | [Evolving into microservices](docs/ARCHITECTURE.md#6-evolving-into-microservices) |
+| 5 | Offline POS mode strategy | [Offline POS and POS–KDS](docs/ARCHITECTURE.md#7-offline-pos-mode-and-poskds-communication) |
+| 5.1 | Syncing sales to HQ on reconnect | [Syncing when the internet returns](docs/ARCHITECTURE.md#syncing-when-the-internet-returns) |
+| 5.2 | POS and KDS working together offline | [POS and KDS during an outage](docs/ARCHITECTURE.md#pos-and-kds-during-an-outage) |
 
 **Contents:** [Features](#features) · [Tech stack](#tech-stack) · [Quick start](#quick-start) ·
 [Configuration](#configuration) · [API](#api) · [Database schema](#database-schema) ·
